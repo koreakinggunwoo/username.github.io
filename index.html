@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>마크닉 토토</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #f0f0f0; margin:0; padding:0; }
+  header { background: #2e7d32; color: white; padding: 10px; text-align: center; position: relative;}
+  .container { max-width: 800px; margin: 20px auto; background: white; padding: 20px; border-radius: 10px; }
+  h2 { color: #2e7d32; }
+  input, button, select { padding: 8px; margin: 5px 0; width: 100%; box-sizing: border-box; }
+  table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+  th, td { border: 1px solid #ccc; padding: 10px; text-align: center; }
+  th { background: #a5d6a7; }
+  tr:nth-child(even) { background: #f1f8e9; }
+  .btn { cursor: pointer; background: #2e7d32; color: white; border: none; border-radius: 5px; padding: 5px 10px; }
+  .btn:hover { background: #1b5e20; }
+  .logout { position: absolute; right: 10px; top: 10px; }
+</style>
+</head>
+<body>
+
+<header>
+  <span id="header-info"></span>
+  <button class="logout" onclick="logout()">로그아웃</button>
+</header>
+
+<!-- 로그인/회원가입 -->
+<div class="container" id="login-container">
+  <h2>로그인 / 회원가입</h2>
+  <input type="text" id="nickname" placeholder="마크닉">
+  <input type="password" id="password" placeholder="비밀번호">
+  <button onclick="login()">로그인</button>
+  <button onclick="signup()">회원가입</button>
+  <p id="login-msg" style="color:red;"></p>
+</div>
+
+<!-- 메인 페이지 -->
+<div class="container" id="main-container" style="display:none;">
+  <h2>경기 목록</h2>
+  <table id="matches-table">
+    <thead>
+      <tr>
+        <th>경기</th>
+        <th>A팀</th>
+        <th>B팀</th>
+        <th>배팅</th>
+        <th>배당</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <button onclick="enterAdminCode()">관리자 코드 입력</button>
+</div>
+
+<!-- 관리자 페이지 -->
+<div class="container" id="admin-container" style="display:none;">
+  <h2>관리자 페이지</h2>
+  <h3>유저 포인트 관리</h3>
+  <table id="users-table">
+    <thead>
+      <tr>
+        <th>닉네임</th>
+        <th>포인트</th>
+        <th>지급</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <h3>경기 관리</h3>
+  <input type="text" id="teamA" placeholder="A팀 이름">
+  <input type="text" id="teamB" placeholder="B팀 이름">
+  <input type="number" id="reward" placeholder="배당 (예: 1.5)">
+  <button onclick="createMatch()">경기 생성</button>
+
+  <table id="admin-matches-table">
+    <thead>
+      <tr>
+        <th>경기</th>
+        <th>A팀</th>
+        <th>B팀</th>
+        <th>배당</th>
+        <th>상태</th>
+        <th>결과등록</th>
+        <th>삭제</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
+
+<script>
+const usersKey = 'totoUsers';
+const matchesKey = 'totoMatches';
+let currentUser = null;
+
+// 유저 관리
+function loadUsers() { return JSON.parse(localStorage.getItem(usersKey) || '[]'); }
+function saveUsers(users) { localStorage.setItem(usersKey, JSON.stringify(users)); }
+
+// 경기 관리
+function loadMatches() { return JSON.parse(localStorage.getItem(matchesKey) || '[]'); }
+function saveMatches(matches) { localStorage.setItem(matchesKey, JSON.stringify(matches)); }
+
+// 회원가입
+function signup() {
+  const nickname = document.getElementById('nickname').value.trim();
+  const password = document.getElementById('password').value;
+  if(!nickname || !password) return alert('닉네임과 비밀번호를 입력하세요.');
+  const users = loadUsers();
+  if(users.find(u => u.nickname === nickname)) return alert('이미 존재하는 닉네임입니다.');
+  users.push({nickname, password, points:0, bets:[]});
+  saveUsers(users);
+  alert('회원가입 완료! 로그인 해주세요.');
+}
+
+// 로그인
+function login() {
+  const nickname = document.getElementById('nickname').value.trim();
+  const password = document.getElementById('password').value;
+  const users = loadUsers();
+  const user = users.find(u => u.nickname === nickname && u.password === password);
+  if(!user) { document.getElementById('login-msg').innerText = '닉네임 또는 비밀번호가 틀립니다.'; return; }
+  currentUser = user;
+  document.getElementById('login-container').style.display = 'none';
+  document.getElementById('header-info').innerText = `안녕하세요, ${user.nickname}님 (포인트: ${user.points})`;
+  showMain();
+}
+
+// 로그아웃
+function logout() { location.reload(); }
+
+// 유저 포인트 UI 업데이트
+function updateHeader() { document.getElementById('header-info').innerText = `안녕하세요, ${currentUser.nickname}님 (포인트: ${currentUser.points})`; }
+
+// 일반 유저 페이지
+function showMain() {
+  document.getElementById('main-container').style.display = 'block';
+  const tbody = document.querySelector('#matches-table tbody');
+  tbody.innerHTML = '';
+  const matches = loadMatches();
+  matches.forEach((m,i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${i+1}</td>
+      <td>${m.teamA}</td>
+      <td>${m.teamB}</td>
+      <td><button class="btn" onclick="bet(${i},'A')">A팀 배팅</button>
+          <button class="btn" onclick="bet(${i},'B')">B팀 배팅</button></td>
+      <td>${m.reward}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// 배팅
+function bet(index, team) {
+  const matches = loadMatches();
+  const match = matches[index];
+  if(match.status === '종료') return alert('이미 종료된 경기입니다.');
+  const point = prompt('배팅할 포인트를 입력하세요:');
+  const pts = parseInt(point);
+  if(isNaN(pts) || pts<=0) return;
+  if(currentUser.points < pts) return alert('포인트가 부족합니다.');
+  currentUser.points -= pts;
+  currentUser.bets.push({matchIndex:index, team, point:pts});
+  const users = loadUsers();
+  const uidx = users.findIndex(u=>u.nickname===currentUser.nickname);
+  users[uidx] = currentUser;
+  saveUsers(users);
+  updateHeader();
+  alert('배팅 완료!');
+}
+
+// 관리자 코드 입력
+function enterAdminCode() {
+  const code = prompt('관리자 코드 입력:');
+  if(code === '2013') { showAdmin(); }
+  else alert('잘못된 코드입니다.');
+}
+
+// 관리자 페이지
+function showAdmin() {
+  document.getElementById('admin-container').style.display = 'block';
+  updateUsersTable();
+  updateAdminMatchesTable();
+}
+
+// 유저 목록
+function updateUsersTable() {
+  const tbody = document.querySelector('#users-table tbody');
+  tbody.innerHTML = '';
+  const users = loadUsers();
+  users.forEach(u => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${u.nickname}</td>
+      <td>${u.points}</td>
+      <td><button class="btn" onclick="addPoints('${u.nickname}')">포인트 지급</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// 포인트 지급
+function addPoints(nickname) {
+  const pts = prompt('지급할 포인트 입력:');
+  const p = parseInt(pts);
+  if(isNaN(p) || p<=0) return;
+  const users = loadUsers();
+  const user = users.find(u=>u.nickname===nickname);
+  user.points += p;
+  saveUsers(users);
+  if(currentUser.nickname === nickname) currentUser.points += p;
+  updateHeader();
+  updateUsersTable();
+}
+
+// 경기 생성
+function createMatch() {
+  const teamA = document.getElementById('teamA').value.trim();
+  const teamB = document.getElementById('teamB').value.trim();
+  const reward = parseFloat(document.getElementById('reward').value);
+  if(!teamA || !teamB || !reward) return alert('모든 정보를 입력하세요.');
+  const matches = loadMatches();
+  matches.push({teamA, teamB, reward, status:'예정'});
+  saveMatches(matches);
+  updateAdminMatchesTable();
+  showMain();
+}
+
+// 관리자 경기 테이블
+function updateAdminMatchesTable() {
+  const tbody = document.querySelector('#admin-matches-table tbody');
+  tbody.innerHTML = '';
+  const matches = loadMatches();
+  matches.forEach((m,i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${i+1}</td>
+      <td>${m.teamA}</td>
+      <td>${m.teamB}</td>
+      <td>${m.reward}</td>
+      <td>${m.status}</td>
+      <td>
+        <button class="btn" onclick="setResult(${i},'A')">A팀 승</button>
+        <button class="btn" onclick="setResult(${i},'B')">B팀 승</button>
+      </td>
+      <td><button class="btn" onclick="deleteMatch(${i})">삭제</button></td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+// 경기 결과 등록
+function setResult(index, winner) {
+  const matches = loadMatches();
+  matches[index].status = '종료';
+  saveMatches(matches);
+
+  const users = loadUsers();
+  users.forEach(u => {
+    u.bets.forEach(b => {
+      if(b.matchIndex === index && b.team === winner) {
+        u.points += Math.floor(b.point * matches[index].reward);
+      }
+    });
+  });
+  saveUsers(users);
+  if(currentUser.nickname!=='admin') updateHeader();
+  updateUsersTable();
+  updateAdminMatchesTable();
+  showMain();
+}
+
+// 경기 삭제
+function deleteMatch(index) {
+  const matches = loadMatches();
+  matches.splice(index,1);
+  saveMatches(matches);
+  updateAdminMatchesTable();
+  showMain();
+}
+</script>
+
+</body>
+</html>
